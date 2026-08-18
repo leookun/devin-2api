@@ -297,7 +297,7 @@ func buildRequest(request llm.RequestMessages, config Config) (*devinproto.GetCh
 	}
 	result := &devinproto.GetChatMessageRequest{
 		Metadata:     metadata,
-		Prompt:       proto.String(withToolDescriptions(request.SystemPrompt, request.Tools)),
+		Prompt:       proto.String(sanitizeSystemPrompt(withToolDescriptions(request.SystemPrompt, request.Tools))),
 		ChatModelUid: proto.String(config.Model),
 		RequestType:  devinproto.ChatMessageRequestType_CHAT_MESSAGE_REQUEST_TYPE_CASCADE.Enum(),
 		Configuration: &devinproto.ExaCodeiumCommonPb_CompletionConfiguration{

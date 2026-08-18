@@ -56,6 +56,18 @@ h1{font-size:22px;margin-bottom:16px;color:#7c8aff}
 .card .value{font-size:16px;font-weight:600;word-break:break-all}
 .progress-bar{width:100%;height:8px;background:#333;border-radius:4px;margin-top:8px;overflow:hidden}
 .progress-fill{height:100%;border-radius:4px;transition:width .5s}
+.kv-row{display:flex;flex-wrap:wrap;gap:6px 20px;margin-top:10px}
+.kv{font-size:12px;line-height:1.8}
+.kv .k{color:#888;margin-right:4px}
+.kv .v{color:#e0e0e0;font-weight:600}
+.ring-row{display:flex;gap:32px;flex-wrap:wrap;margin-top:14px}
+.ring-wrap{display:flex;flex-direction:column;align-items:center;gap:6px}
+.ring-wrap .ring-label{font-size:12px;color:#888}
+.ring-wrap .ring-pct{font-size:16px;font-weight:700}
+.ring-countdown{font-size:11px;color:#666;margin-top:2px}
+.ring-svg{width:80px;height:80px;transform:rotate(-90deg)}
+.ring-bg{fill:none;stroke:#333;stroke-width:8}
+.ring-fg{fill:none;stroke-width:8;stroke-linecap:round;transition:stroke-dashoffset .5s}
 .filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center}
 .filters select,.filters input[type=search]{padding:8px 12px;border:1px solid #333;border-radius:8px;background:#0f1117;color:#e0e0e0;font-size:13px}
 .filters input[type=search]{flex:1;min-width:180px}
@@ -180,6 +192,30 @@ return String(s==null?'':s)
 function card(label,value){
 return '<div class="card"><div class="label">'+esc(label)+'</div><div class="value">'+esc(String(value))+'</div></div>';
 }
+// kv 生成一行键值对（无卡片背景，紧凑排列）
+function kv(k,v){return '<span class="kv"><span class="k">'+esc(k)+'</span><span class="v">'+esc(String(v))+'</span></span>'}
+// ring 生成环形进度图（SVG），percent 0-100，即使 0 也显示
+// resetUnix 为重置时间戳（秒），total 为估算总量（如 monthly_prompt_credits）
+function ring(label,percent,resetUnix,total){
+const p=Math.max(0,Math.min(100,Number(percent)||0));
+const r=32,circ=2*Math.PI*r,off=circ*(1-p/100);
+const color=p>50?'#4ade80':p>20?'#fbbf24':'#f87171';
+let countdown='';
+if(resetUnix&&Number(resetUnix)>0){
+const diff=Number(resetUnix)*1000-Date.now();
+if(diff>0){
+const d=Math.floor(diff/86400000),h=Math.floor(diff%86400000/3600000),m=Math.floor(diff%3600000/60000);
+if(d>0){countdown=d+'d '+h+'h '+m+'m'}else if(h>0){countdown=h+'h '+m+'m'}else{countdown=m+'m'}
+}else{countdown='已重置'}
+}
+let actual='-';
+if(Number.isFinite(Number(total))&&Number(total)>0){
+const rem=Math.round(p/100*Number(total));
+const used=Number(total)-rem;
+actual=used+' / '+total;
+}
+return '<div class="ring-wrap"><svg class="ring-svg" viewBox="0 0 80 80"><circle class="ring-bg" cx="40" cy="40" r="'+r+'"/><circle class="ring-fg" cx="40" cy="40" r="'+r+'" stroke="'+color+'" stroke-dasharray="'+circ.toFixed(1)+'" stroke-dashoffset="'+off.toFixed(1)+'"/></svg><div class="ring-pct" style="color:'+color+'">'+p+'%</div><div class="ring-label">'+esc(label)+'</div>'+(countdown?'<div class="ring-countdown">倒计时 '+countdown+'</div>':'')+'</div>';
+}
 
 function fmtQuota(v){
 if(v==null||v===''||v===undefined) return '-';
@@ -209,53 +245,49 @@ const el=document.getElementById('statusSection');
 let html='<h2>账户 / 容量状态</h2>';
 if(data.user){
 const u=data.user;
-html+='<div class="grid">';
-html+=card('用户名',u.name||'-');
-html+=card('邮箱',u.email||'-');
-html+=card('Pro',u.pro?'是':'否');
-html+=card('Tier',u.teams_tier||'-');
-html+=card('User ID',u.user_id||'-');
+html+='<div class="kv-row">';
+html+=kv('用户名',u.name||'-');
+html+=kv('邮箱',u.email||'-');
+html+=kv('Pro',u.pro?'是':'否');
+html+=kv('Tier',u.teams_tier||'-');
+html+=kv('User ID',u.user_id||'-');
 html+='</div>';
 }
 if(data.plan_status||data.plan_info){
 const ps=data.plan_status||{};
 const pi=data.plan_info||{};
-html+='<h2 style="margin-top:16px">套餐与用量</h2><div class="grid">';
-html+=card('套餐',ps.plan_name||pi.plan_name||'-');
-html+=card('计费',ps.billing_strategy||pi.billing_strategy||'-');
-html+=card('月 Prompt',fmtQuota(ps.monthly_prompt_credits??pi.monthly_prompt_credits));
-html+=card('可用 Prompt',fmtQuota(ps.available_prompt_credits));
-html+=card('可用 Flow',fmtQuota(ps.available_flow_credits));
-html+=card('可用 Flex',fmtQuota(ps.available_flex_credits));
-html+=card('日配额剩余',ps.daily_quota_remaining!=null?(ps.daily_quota_remaining+'%'):'-');
-html+=card('周配额剩余',ps.weekly_quota_remaining!=null?(ps.weekly_quota_remaining+'%'):'-');
-html+=card('日重置',fmtUnix(ps.daily_quota_reset));
-html+=card('周重置',fmtUnix(ps.weekly_quota_reset));
-html+=card('周期开始',ps.plan_start||'-');
-html+=card('周期结束',ps.plan_end||'-');
-html+=card('超额 micros',ps.overage_balance_micros??'-');
-html+=card('ACU', (ps.acu_consumed??'-')+' / '+(ps.acu_limit??'-'));
+html+='<h2 style="margin-top:16px">套餐与用量</h2>';
+// 环形图：日/周配额剩余（始终显示，即使 0%）
+html+='<div class="ring-row">';
+const total=ps.monthly_prompt_credits??pi.monthly_prompt_credits;
+html+=ring('日配额剩余',ps.daily_quota_remaining!=null?ps.daily_quota_remaining:0,ps.daily_quota_reset,total);
+html+=ring('周配额剩余',ps.weekly_quota_remaining!=null?ps.weekly_quota_remaining:0,ps.weekly_quota_reset,total);
 html+='</div>';
-if(ps.daily_quota_remaining!=null) html+=bar('每日配额剩余',ps.daily_quota_remaining);
-if(ps.weekly_quota_remaining!=null) html+=bar('每周配额剩余',ps.weekly_quota_remaining);
+// 紧凑键值对
+html+='<div class="kv-row">';
+html+=kv('套餐',ps.plan_name||pi.plan_name||'-');
+html+=kv('计费',ps.billing_strategy||pi.billing_strategy||'-');
+html+=kv('月 Prompt',fmtQuota(ps.monthly_prompt_credits??pi.monthly_prompt_credits));
+html+=kv('可用 Prompt',fmtQuota(ps.available_prompt_credits));
+html+=kv('可用 Flow',fmtQuota(ps.available_flow_credits));
+html+=kv('可用 Flex',fmtQuota(ps.available_flex_credits));
+html+=kv('周期',ps.plan_start||'-'+' ~ '+(ps.plan_end||'-'));
+html+=kv('超额',ps.overage_balance_micros??'-');
+html+=kv('ACU',(ps.acu_consumed??'-')+' / '+(ps.acu_limit??'-'));
+html+='</div>';
 html+='<div class="note" style="margin-top:10px">Pro 多为 <strong>配额制 (QUOTA)</strong>：优先看日/周剩余百分比。月 Prompt 为 -1 表示不按固定 monthly credit 计。</div>';
 }
 if(data.capacity){
-html+='<h2 style="margin-top:16px">容量</h2><div class="grid">';
-html+=card('有容量',data.capacity.has_capacity?'是':'否');
-html+=card('活跃会话',data.capacity.active_sessions??'-');
-html+=card('容量消息',data.capacity.message||'-');
+html+='<div class="kv-row" style="margin-top:10px">';
+html+=kv('有容量',data.capacity.has_capacity?'是':'否');
+html+=kv('活跃会话',data.capacity.active_sessions??'-');
+html+=kv('容量消息',data.capacity.message||'-');
 html+='</div>';
 }
 if(data.ide_status){
-html+='<div class="grid" style="margin-top:10px">';
-html+=card('IDE 状态',data.ide_status.level||'-');
-html+=card('IDE 消息',data.ide_status.message||'-');
-html+='</div>';
-}
-if(data.providers&&data.providers.length){
-html+='<h2 style="margin-top:16px">渠道</h2><div class="grid">';
-data.providers.forEach(p=>{html+=card(p.display_name||p.provider,p.provider||'-')});
+html+='<div class="kv-row" style="margin-top:6px">';
+html+=kv('IDE 状态',data.ide_status.level||'-');
+html+=kv('IDE 消息',data.ide_status.message||'-');
 html+='</div>';
 }
 if(data.model_statuses&&data.model_statuses.length){
