@@ -55,6 +55,47 @@ func TestDecodeRequestBuildsConversationContext(t *testing.T) {
 	}
 }
 
+// TestDecodeRequestMergesParallelFunctionCalls 验证并行工具调用并入同一条 assistant 消息。
+// Devin 上游拒绝“多条 assistant 各带一个 toolCall，后面跟多个结果”的序列（issue #7），
+// 合并后 assistant.Content 应持有全部调用，且每个 call_id 仍能解析出工具名。
+func TestDecodeRequestMergesParallelFunctionCalls(t *testing.T) {
+	request, err := DecodeRequest([]byte(`{
+  "model": "gpt-test",
+  "input": [
+    {"type":"message","role":"user","content":[{"type":"input_text","text":"查时间和天气"}]},
+    {"type":"function_call","call_id":"call-1","name":"get_time","arguments":"{}"},
+    {"type":"reasoning","id":"rs-1","summary":[]},
+    {"type":"function_call","call_id":"call-2","name":"get_weather","arguments":"{\"city\":\"Beijing\"}"},
+    {"type":"function_call_output","call_id":"call-1","output":"18:30"},
+    {"type":"function_call_output","call_id":"call-2","output":"22C"}
+  ],
+  "tools": [{"type":"function","name":"get_time","parameters":{"type":"object"}},
+            {"type":"function","name":"get_weather","parameters":{"type":"object"}}]
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(request.Context.Messages) != 4 {
+		t.Fatalf("message count = %d, want 4 (parallel calls must merge into one assistant)", len(request.Context.Messages))
+	}
+	assistant, ok := request.Context.Messages[1].(llm.AssistantMessage)
+	if !ok {
+		t.Fatalf("message[1] type = %T, want llm.AssistantMessage", request.Context.Messages[1])
+	}
+	if len(assistant.Content) != 2 {
+		t.Fatalf("assistant content count = %d, want 2", len(assistant.Content))
+	}
+	for index, want := range []string{"get_time", "get_weather"} {
+		call, ok := assistant.Content[index].(llm.ToolCall)
+		if !ok || call.Name != want {
+			t.Fatalf("content[%d] = %#v, want tool %s", index, assistant.Content[index], want)
+		}
+	}
+	if err := request.Context.Validate(); err != nil {
+		t.Fatalf("context validation error = %v", err)
+	}
+}
+
 // TestDecodeRequestAcceptsStringInput 验证紧凑字符串输入会转换为用户文字消息。
 func TestDecodeRequestAcceptsStringInput(t *testing.T) {
 	request, err := DecodeRequest([]byte(`{"model":"gpt-test","input":"hello"}`))

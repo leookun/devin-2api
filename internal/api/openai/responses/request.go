@@ -157,8 +157,21 @@ func appendInputItem(context *llm.RequestMessages, raw json.RawMessage) error {
 			return err
 		}
 		arguments := json.RawMessage(item.Arguments)
+		call := llm.ToolCall{ID: item.CallID, Name: item.Name, Arguments: arguments}
+		// Devin 要求同一次生成发出的多个工具调用落在同一条 assistant 消息里：
+		// “两条 assistant 各带一个 toolCall，后面跟两个结果” 会被上游判为非法序列并
+		// 回 invalid_argument（github.com/leookun/devin-2api/issues/7）。Responses
+		// 协议把每次调用拆成独立 item，这里并回上一条仍是 tool-use 的消息。
+		if last := len(context.Messages) - 1; last >= 0 {
+			if assistant, ok := context.Messages[last].(llm.AssistantMessage); ok &&
+				assistant.StopReason == llm.StopReasonToolUse {
+				assistant.Content = append(assistant.Content, call)
+				context.Messages[last] = assistant
+				return nil
+			}
+		}
 		context.Messages = append(context.Messages, llm.AssistantMessage{
-			Content:     []llm.Content{llm.ToolCall{ID: item.CallID, Name: item.Name, Arguments: arguments}},
+			Content:     []llm.Content{call},
 			StopReason:  llm.StopReasonToolUse,
 			TimestampMS: time.Now().UnixMilli(),
 		})
